@@ -89,7 +89,7 @@ def build_deck(deck_list_text: str, cache_path: str = "card_cache.json") -> tupl
 
 def build_report(
     deck: Deck,
-    target_card_name: str,
+    target_card_names: list[str],
     target_search_names: list[str],
     mc_simulations: int = 0,
     mc_seed: int = 42,
@@ -195,26 +195,41 @@ def build_report(
         }
     )
 
-    target_copies = _quantity_for_name(deck, target_card_name)
+    total_target_copies = _quantity_for_names(deck, target_card_names)
     target_search_total = _quantity_for_names(deck, target_search_names)
-    target_df = pd.DataFrame(
-        {
-            "Statistic": [
-                f"P({target_card_name} in opening hand)",
-                f"P(Target search in hand) [{', '.join(target_search_names)}]",
-                f"P({target_card_name} OR target search in hand)",
-            ],
-            "Probability": [
-                _pct(calc.specific_card_in_hand_probability(deck_size, target_copies)),
-                _pct(calc.searcher_probability(deck_size, target_search_total)),
-                _pct(
-                    calc.target_card_with_searches_probability(
-                        deck_size, target_copies, target_search_total
-                    )
-                ),
-            ],
-        }
+
+    target_rows = []
+    for name in target_card_names:
+        copies = _quantity_for_name(deck, name)
+        target_rows.append({
+            "Statistic": f"P({name} in opening hand)",
+            "Probability": _pct(calc.specific_card_in_hand_probability(deck_size, copies)),
+        })
+    if len(target_card_names) > 1:
+        target_rows.append({
+            "Statistic": "P(any target in opening hand)",
+            "Probability": _pct(
+                calc.specific_card_in_hand_probability(deck_size, total_target_copies)
+            ),
+        })
+    searcher_label = (
+        f"P(Target search in hand) [{', '.join(target_search_names)}]"
+        if target_search_names
+        else "P(Target search in hand)"
     )
+    target_rows.append({
+        "Statistic": searcher_label,
+        "Probability": _pct(calc.searcher_probability(deck_size, target_search_total)),
+    })
+    target_rows.append({
+        "Statistic": "P(any target OR target search in hand)",
+        "Probability": _pct(
+            calc.target_card_with_searches_probability(
+                deck_size, total_target_copies, target_search_total
+            )
+        ),
+    })
+    target_df = pd.DataFrame(target_rows)
 
     comparison_df = None
     if mc_simulations > 0:
