@@ -7,6 +7,7 @@ import urllib.request
 from pathlib import Path
 
 from src.deck import Card
+from src.set_mapping import SET_CODE_MAP
 
 _BASE_URL = "https://api.tcgdex.net/v2/en/cards"
 _TIMEOUT = 10
@@ -55,19 +56,46 @@ def _get_json(url: str) -> dict | list | None:
         raise
 
 
-def _fetch_by_id(set_id: str, local_id: str) -> dict | None:
-    """Fetch card by set_id-local_id from primary endpoint."""
-    url = f"{_BASE_URL}/{set_id}-{local_id}"
+def _fetch_by_id(tcgdex_id: str, set_number: str) -> dict | None:
+    """Fetch a card by its TCGDex set ID and zero-padded number.
+
+    Uses zero-padded (3 digits) as TCGDex expects (e.g. me01-054, sv09-120).
+
+    Args:
+        tcgdex_id: TCGDex set ID (e.g. "me01", "sv02").
+        set_number: Card number within the set (e.g. "54", "269").
+
+    Returns:
+        Card dict from API or None if not found.
+    """
+    padded = set_number.zfill(3)
+    url = f"{_BASE_URL}/{tcgdex_id}-{padded}"
     return _get_json(url)
 
 
-def _fetch_by_name(name: str) -> dict | None:
-    """Fetch card by name using search endpoint; return first result or None."""
+def _fetch_by_name(name: str, set_number: str) -> dict | None:
+    """Search cards by name and filter by matching set number (ignoring zero-padding).
+
+    Args:
+        name: Card name to search for.
+        set_number: Set number to match (e.g. "54", "054").
+
+    Returns:
+        First matching card dict or None if not found.
+    """
     encoded = urllib.request.quote(name)
     url = f"{_BASE_URL}?name={encoded}"
     result = _get_json(url)
-    if isinstance(result, list) and result:
-        return result[0]
+
+    if not isinstance(result, list) or not result:
+        return None
+
+    normalized_number = set_number.lstrip("0") or "0"
+    for card in result:
+        local_id = str(card.get("localId", ""))
+        if local_id.lstrip("0") == normalized_number:
+            return card
+
     return None
 
 
@@ -84,19 +112,10 @@ def _map_subcategory(api_data: dict) -> str:
 
     if category == "Trainer":
         trainer_type = api_data.get("trainerType", "").lower()
-        mapping = {
-            "item": "item",
-            "supporter": "supporter",
-            "stadium": "stadium",
-            "tool": "tool",
-        }
-        return mapping.get(trainer_type, "unknown")
+        return trainer_type if trainer_type in ("item", "supporter", "stadium", "tool") else "unknown"
 
     if category == "Energy":
-        energy_type = api_data.get("energyType", "") or api_data.get("energy_type", "")
-        if energy_type == "Special":
-            return "special_energy"
-        return "basic_energy"
+        return "special_energy" if api_data.get("energyType") == "Special" else "basic_energy"
 
     return "unknown"
 
@@ -106,18 +125,41 @@ def _map_subcategory(api_data: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def _lookup_card(
-    name: str, set_id: str, local_id: str, cache: dict, cache_path: str
+    name: str, set_code: str, set_number: str, cache: dict, cache_path: str
 ) -> str:
-    """Return subcategory for one card, using cache or API."""
-    cache_key = f"{set_id}-{local_id}"
+    """Return subcategory for one card, using cache or API.
+
+    Strategy:
+      1. Cache check: return cached result if present.
+      2. Primary: if set_code in SET_CODE_MAP → ID-based lookup (zero-padded).
+      3. Fallback: name-search endpoint, filter by matching localId.
+      4. Not found: log warning and return 'unknown'.
+
+    Args:
+        name: Card name (used for name-based API search).
+        set_code: PTCG Live set code (e.g. "MEG", "PAL").
+        set_number: Card number within the set (e.g. "54").
+        cache: Mutable cache dict (updated in-place on miss).
+        cache_path: Path to JSON cache file on disk.
+
+    Returns:
+        Subcategory string (e.g. 'basic', 'supporter', 'basic_energy', 'unknown').
+    """
+    cache_key = f"{set_code.upper()}-{set_number}"
 
     if cache_key in cache:
         return _map_subcategory(cache[cache_key])
 
-    api_data = _fetch_by_id(set_id, local_id)
+    api_data: dict | None = None
 
+    # Primary: ID-based lookup via SET_CODE_MAP
+    if set_code.upper() in SET_CODE_MAP:
+        tcgdex_id = SET_CODE_MAP[set_code.upper()]
+        api_data = _fetch_by_id(tcgdex_id, set_number)
+
+    # Fallback: name search
     if api_data is None:
-        api_data = _fetch_by_name(name)
+        api_data = _fetch_by_name(name, set_number)
 
     if api_data is None:
         logger.warning(f"Card not found: {name} ({cache_key})")
@@ -149,12 +191,10 @@ def enrich_deck(
     result: list[Card] = []
 
     for card_dict in parsed_cards:
-        set_id = card_dict["set_code"].lower()
-        local_id = card_dict["set_number"]
         subcategory = _lookup_card(
             name=card_dict["name"],
-            set_id=set_id,
-            local_id=local_id,
+            set_code=card_dict["set_code"],
+            set_number=card_dict["set_number"],
             cache=cache,
             cache_path=cache_path,
         )

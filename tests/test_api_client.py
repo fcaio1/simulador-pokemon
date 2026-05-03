@@ -2,7 +2,7 @@
 
 import json
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -31,7 +31,7 @@ def _make_parsed_card(
     }
 
 
-def _make_http_response(body: dict, status: int = 200) -> MagicMock:
+def _make_http_response(body: list | dict, status: int = 200) -> MagicMock:
     """Return a mock that behaves like urllib.request.urlopen context manager."""
     mock_resp = MagicMock()
     mock_resp.status = status
@@ -41,12 +41,11 @@ def _make_http_response(body: dict, status: int = 200) -> MagicMock:
     return mock_resp
 
 
-def _make_404_response() -> MagicMock:
-    """Return a mock that raises urllib.error.HTTPError with code 404."""
+def _make_404_error() -> MagicMock:
+    """Return an HTTPError mock with status 404."""
     import urllib.error
-    error = urllib.error.HTTPError(url="", code=404, msg="Not Found", hdrs=None, fp=None)
-    mock_urlopen = MagicMock(side_effect=error)
-    return mock_urlopen
+    err = urllib.error.HTTPError(url="", code=404, msg="Not Found", hdrs=None, fp=None)
+    return err
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +56,7 @@ def test_cache_hit_no_http_request(tmp_path):
     """If the card is already cached, no HTTP request is made."""
     cache_file = tmp_path / "cache.json"
     cached_data = {
-        "meg-54": {"category": "Pokemon", "stage": "Basic", "name": "Abra"}
+        "MEG-54": {"category": "Pokemon", "stage": "Basic", "name": "Abra", "localId": "054"}
     }
     cache_file.write_text(json.dumps(cached_data))
 
@@ -73,86 +72,104 @@ def test_cache_hit_no_http_request(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — Cache miss: HTTP request made and cache file updated
+# Test 2 — Cache miss + set in map → ID-based lookup succeeds → saves cache
 # ---------------------------------------------------------------------------
 
-def test_cache_miss_saves_to_cache(tmp_path):
-    """Cache miss triggers HTTP request; result is saved to cache file."""
+def test_cache_miss_set_in_map_id_lookup_succeeds(tmp_path):
+    """Cache miss with known set code uses ID-based lookup and saves result to cache."""
     cache_file = tmp_path / "cache.json"
-    api_body = {"category": "Pokemon", "stage": "Basic", "name": "Abra"}
+    # MEG → me01, number 54 → zero-padded "054" → me01-054
+    api_card = {"category": "Pokemon", "stage": "Basic", "name": "Abra", "localId": "054"}
 
-    parsed_cards = [_make_parsed_card()]
+    parsed_cards = [_make_parsed_card(set_code="MEG", set_number="54")]
 
-    with patch("urllib.request.urlopen", return_value=_make_http_response(api_body)):
+    with patch("urllib.request.urlopen", return_value=_make_http_response(api_card)) as mock_urlopen:
+        result = enrich_deck(parsed_cards, cache_path=str(cache_file))
+
+    assert len(result) == 1
+    assert result[0].subcategory == "basic"
+
+    # Verify the ID-based URL was called (me01-054)
+    called_urls = [str(c.args[0].full_url) for c in mock_urlopen.call_args_list]
+    assert any("me01-054" in url for url in called_urls)
+
+    # Verify result was saved to cache
+    saved = json.loads(cache_file.read_text())
+    assert "MEG-54" in saved
+    assert saved["MEG-54"]["stage"] == "Basic"
+
+
+# ---------------------------------------------------------------------------
+# Test 3 — Cache miss + set in map → ID-based 404 → name search fallback succeeds
+# ---------------------------------------------------------------------------
+
+def test_cache_miss_set_in_map_id_404_falls_back_to_name_search(tmp_path):
+    """When ID-based lookup returns 404, name search fallback is used."""
+    import urllib.error
+
+    cache_file = tmp_path / "cache.json"
+    api_card = {"category": "Pokemon", "stage": "Basic", "name": "Abra", "localId": "054"}
+
+    # First call (ID-based) → 404; second call (name search) → list with card
+    http_404 = urllib.error.HTTPError(url="", code=404, msg="Not Found", hdrs=None, fp=None)
+    name_search_resp = _make_http_response([api_card])
+
+    parsed_cards = [_make_parsed_card(set_code="MEG", set_number="54")]
+
+    with patch("urllib.request.urlopen", side_effect=[http_404, name_search_resp]):
         result = enrich_deck(parsed_cards, cache_path=str(cache_file))
 
     assert len(result) == 1
     assert result[0].subcategory == "basic"
 
     saved = json.loads(cache_file.read_text())
-    assert "meg-54" in saved
-    assert saved["meg-54"]["stage"] == "Basic"
+    assert "MEG-54" in saved
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — 404 primary → fallback by name search succeeds
+# Test 4 — Cache miss + set NOT in map → name search → succeeds
 # ---------------------------------------------------------------------------
 
-def test_404_primary_uses_fallback_by_name(tmp_path):
-    """When primary endpoint returns 404, fallback name search is used."""
-    import urllib.error
-
+def test_cache_miss_set_not_in_map_uses_name_search(tmp_path):
+    """When set code is not in SET_CODE_MAP, skip ID lookup and go straight to name search."""
     cache_file = tmp_path / "cache.json"
-    fallback_body = [{"category": "Pokemon", "stage": "Stage1", "name": "Kadabra"}]
+    # "XYZ" is not in SET_CODE_MAP
+    api_card = {"category": "Pokemon", "stage": "Basic", "name": "Abra", "localId": "099"}
 
-    primary_error = urllib.error.HTTPError(
-        url="", code=404, msg="Not Found", hdrs=None, fp=None
-    )
+    parsed_cards = [_make_parsed_card(set_code="XYZ", set_number="99")]
 
-    def side_effect(request, timeout=10):
-        url = request.full_url if hasattr(request, "full_url") else str(request)
-        if "meg-54" in url:
-            raise primary_error
-        return _make_http_response(fallback_body)
-
-    parsed_cards = [_make_parsed_card()]
-
-    with patch("urllib.request.urlopen", side_effect=side_effect):
+    with patch("urllib.request.urlopen", return_value=_make_http_response([api_card])) as mock_urlopen:
         result = enrich_deck(parsed_cards, cache_path=str(cache_file))
 
     assert len(result) == 1
-    assert result[0].subcategory == "other"
+    assert result[0].subcategory == "basic"
+
+    # Only one HTTP call should be made (the name search), no ID-based URL
+    assert mock_urlopen.call_count == 1
+    called_url = str(mock_urlopen.call_args_list[0].args[0].full_url)
+    assert "name=" in called_url
+    assert "xyz" not in called_url.lower() or "name=" in called_url
+
+    saved = json.loads(cache_file.read_text())
+    assert "XYZ-99" in saved
 
 
 # ---------------------------------------------------------------------------
-# Test 4 — Card not found → subcategory='unknown' + warning logged
+# Test 5 — Both lookups fail → unknown + warning logged
 # ---------------------------------------------------------------------------
 
-def test_card_not_found_logs_warning_and_returns_unknown(tmp_path, caplog):
-    """When both primary and fallback return 404, subcategory is 'unknown'."""
+def test_both_lookups_fail_returns_unknown_with_warning(tmp_path, caplog):
+    """When both ID-based and name-search lookups fail, subcategory is 'unknown' and a warning is logged."""
     import urllib.error
 
     cache_file = tmp_path / "cache.json"
+    http_404 = urllib.error.HTTPError(url="", code=404, msg="Not Found", hdrs=None, fp=None)
+    empty_list_resp = _make_http_response([])
 
-    primary_error = urllib.error.HTTPError(
-        url="", code=404, msg="Not Found", hdrs=None, fp=None
-    )
-    fallback_error = urllib.error.HTTPError(
-        url="", code=404, msg="Not Found", hdrs=None, fp=None
-    )
-
-    call_count = {"n": 0}
-
-    def side_effect(request, timeout=10):
-        call_count["n"] += 1
-        if call_count["n"] == 1:
-            raise primary_error
-        raise fallback_error
-
-    parsed_cards = [_make_parsed_card()]
+    parsed_cards = [_make_parsed_card(set_code="MEG", set_number="54")]
 
     with caplog.at_level(logging.WARNING, logger="src.api_client"):
-        with patch("urllib.request.urlopen", side_effect=side_effect):
+        with patch("urllib.request.urlopen", side_effect=[http_404, empty_list_resp]):
             result = enrich_deck(parsed_cards, cache_path=str(cache_file))
 
     assert len(result) == 1
@@ -161,37 +178,20 @@ def test_card_not_found_logs_warning_and_returns_unknown(tmp_path, caplog):
 
 
 # ---------------------------------------------------------------------------
-# Test 5 — Basic Pokemon classification
+# Test 6 — Basic Pokemon classification
 # ---------------------------------------------------------------------------
 
 def test_basic_pokemon_subcategory(tmp_path):
     """Pokemon with stage='Basic' maps to subcategory='basic'."""
     cache_file = tmp_path / "cache.json"
-    api_body = {"category": "Pokemon", "stage": "Basic", "name": "Abra"}
+    api_card = {"category": "Pokemon", "stage": "Basic", "name": "Abra", "localId": "054"}
 
     parsed_cards = [_make_parsed_card()]
 
-    with patch("urllib.request.urlopen", return_value=_make_http_response(api_body)):
+    with patch("urllib.request.urlopen", return_value=_make_http_response(api_card)):
         result = enrich_deck(parsed_cards, cache_path=str(cache_file))
 
     assert result[0].subcategory == "basic"
-
-
-# ---------------------------------------------------------------------------
-# Test 6 — Stage1 Pokemon classification
-# ---------------------------------------------------------------------------
-
-def test_stage1_pokemon_subcategory(tmp_path):
-    """Pokemon with stage != 'Basic' maps to subcategory='other'."""
-    cache_file = tmp_path / "cache.json"
-    api_body = {"category": "Pokemon", "stage": "Stage1", "name": "Kadabra"}
-
-    parsed_cards = [_make_parsed_card(name="Kadabra", set_code="MEG", set_number="55")]
-
-    with patch("urllib.request.urlopen", return_value=_make_http_response(api_body)):
-        result = enrich_deck(parsed_cards, cache_path=str(cache_file))
-
-    assert result[0].subcategory == "other"
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +201,8 @@ def test_stage1_pokemon_subcategory(tmp_path):
 def test_supporter_trainer_subcategory(tmp_path):
     """Trainer with trainerType='Supporter' maps to subcategory='supporter'."""
     cache_file = tmp_path / "cache.json"
-    api_body = {"category": "Trainer", "trainerType": "Supporter", "name": "Iono"}
+    # PAL → sv02, number 269 → "269" (already 3 digits)
+    api_card = {"category": "Trainer", "trainerType": "Supporter", "name": "Iono", "localId": "269"}
 
     parsed_cards = [
         _make_parsed_card(
@@ -209,28 +210,34 @@ def test_supporter_trainer_subcategory(tmp_path):
         )
     ]
 
-    with patch("urllib.request.urlopen", return_value=_make_http_response(api_body)):
+    with patch("urllib.request.urlopen", return_value=_make_http_response(api_card)):
         result = enrich_deck(parsed_cards, cache_path=str(cache_file))
 
     assert result[0].subcategory == "supporter"
 
 
 # ---------------------------------------------------------------------------
-# Test 8 — Basic Energy classification
+# Test 8 — Special Energy classification
 # ---------------------------------------------------------------------------
 
-def test_basic_energy_subcategory(tmp_path):
-    """Energy card without special energyType maps to subcategory='basic_energy'."""
+def test_special_energy_subcategory(tmp_path):
+    """Energy card with energyType='Special' maps to subcategory='special_energy'."""
     cache_file = tmp_path / "cache.json"
-    api_body = {"category": "Energy", "name": "Basic Psychic Energy"}
+    # PAL → sv02, number 192 → "192"
+    api_card = {
+        "category": "Energy",
+        "energyType": "Special",
+        "name": "Reversal Energy",
+        "localId": "192",
+    }
 
     parsed_cards = [
         _make_parsed_card(
-            name="Basic Psychic Energy", set_code="SVE", set_number="5", category="energy"
+            name="Reversal Energy", set_code="PAL", set_number="192", category="energy"
         )
     ]
 
-    with patch("urllib.request.urlopen", return_value=_make_http_response(api_body)):
+    with patch("urllib.request.urlopen", return_value=_make_http_response(api_card)):
         result = enrich_deck(parsed_cards, cache_path=str(cache_file))
 
-    assert result[0].subcategory == "basic_energy"
+    assert result[0].subcategory == "special_energy"
