@@ -54,7 +54,7 @@ def test_build_report_multiple_targets_produces_extra_combined_row():
 
 
 def test_build_report_multiple_targets_combined_probability_is_higher():
-    """P(any target) with 2 cards must be >= P of either alone."""
+    """P(any target) with 2 cards must be strictly greater than P of any single target alone."""
     deck = _make_deck()
     report_single = build_report(
         deck=deck,
