@@ -70,7 +70,9 @@ def simulate(deck: "Deck", n: int = 100_000, seed: int = 42) -> dict:
     deck_array = np.array(deck_list)
     basics, supporters, energies = _build_category_sets(deck)
     all_card_names = list({card.name for card in deck.cards})
-    basic_names = [card.name for card in deck.cards if card.subcategory == "basic"]
+    basic_names = list(dict.fromkeys(
+        card.name for card in deck.cards if card.subcategory == "basic"
+    ))
 
     rng = np.random.default_rng(seed)
 

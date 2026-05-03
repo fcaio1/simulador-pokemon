@@ -1,7 +1,9 @@
 """PTCG Live deck list parser."""
 
 KNOWN_SECTIONS = {
+    "Pokemon:": "pokemon",
     "Pokémon:": "pokemon",
+    "PokÃ©mon:": "pokemon",
     "Trainer:": "trainer",
     "Energy:": "energy",
 }

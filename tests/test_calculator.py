@@ -16,6 +16,7 @@ from src.calculator import (
     specific_card_in_hand_probability,
     searcher_probability,
     card_or_searcher_probability,
+    target_card_with_searches_probability,
 )
 
 TOLERANCE = 0.0001
@@ -118,6 +119,15 @@ def test_card_or_searcher_ge_specific_card() -> None:
     card_alone = specific_card_in_hand_probability(deck_size=60, card_copies=2)
     combined = card_or_searcher_probability(deck_size=60, card_copies=2, searcher_copies=8)
     assert combined >= card_alone
+
+
+def test_target_card_with_searches_matches_existing_formula() -> None:
+    """The target-card helper should match the existing card/searcher calculation."""
+    existing = card_or_searcher_probability(deck_size=60, card_copies=3, searcher_copies=4)
+    helper = target_card_with_searches_probability(
+        deck_size=60, target_card_copies=3, target_search_copies=4
+    )
+    assert helper == pytest.approx(existing, abs=1e-12)
 
 
 # ---------------------------------------------------------------------------

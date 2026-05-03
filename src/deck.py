@@ -25,6 +25,15 @@ class Deck:
         """Get the total number of cards in the deck."""
         return sum(card.quantity for card in self.cards)
 
+    def quantity_of(self, card_name: str) -> int:
+        """Get the total quantity of a card in the deck by exact name."""
+        return sum(card.quantity for card in self.cards if card.name == card_name)
+
+    def quantity_of_names(self, card_names: list[str]) -> int:
+        """Get the combined total quantity for a list of card names."""
+        wanted_names = set(card_names)
+        return sum(card.quantity for card in self.cards if card.name in wanted_names)
+
     @property
     def basic_pokemon(self) -> list[Card]:
         """Get all basic Pokemon cards."""

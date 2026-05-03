@@ -114,3 +114,10 @@ def card_or_searcher_probability(
         for k in range(1, min(searcher_copies, 7 - j) + 1)
     )
     return p_card + p_searcher - p_both_raw
+
+
+def target_card_with_searches_probability(
+    deck_size: int, target_card_copies: int, target_search_copies: int
+) -> float:
+    """P(opening 7 contains the target card or a search that can find it)."""
+    return card_or_searcher_probability(deck_size, target_card_copies, target_search_copies)

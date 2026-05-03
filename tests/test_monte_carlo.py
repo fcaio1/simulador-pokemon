@@ -108,3 +108,21 @@ def test_seed_reproducibility() -> None:
     assert result_a["mulligan_rate"] == result_b["mulligan_rate"]
     assert result_a["possible_starters"]["Abra"] == result_b["possible_starters"]["Abra"]
     assert result_a["forced_starters"]["Abra"] == result_b["forced_starters"]["Abra"]
+
+
+def test_duplicate_basic_names_do_not_break_probabilities() -> None:
+    """Repeated entries of the same basic name should still yield a valid probability."""
+    deck = Deck(
+        [
+            Card(2, "Dunsparce", "JTG", "120", "pokemon", "basic"),
+            Card(1, "Dunsparce", "TEF", "128", "pokemon", "basic"),
+            Card(7, "OtherBasic", "XX", "1", "pokemon", "basic"),
+            Card(10, "Stage1", "XX", "2", "pokemon", "other"),
+            Card(13, "Iono", "PAL", "269", "trainer", "supporter"),
+            Card(20, "Ultra Ball", "SVI", "196", "trainer", "item"),
+            Card(7, "Psychic Energy", "SVE", "5", "energy", "basic_energy"),
+        ]
+    )
+    result = simulate(deck, n=20_000, seed=42)
+    expected = possible_starter_probability(60, 10, 3)
+    assert abs(result["possible_starters"]["Dunsparce"] - expected) < TOLERANCE
