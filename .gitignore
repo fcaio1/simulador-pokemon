@@ -1,0 +1,15 @@
+.claude/
+.superpowers/
+.pytest_cache/
+.tmp/
+.coverage
+.ipynb_checkpoints/
+.env
+.env.*
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc

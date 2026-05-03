@@ -1,5 +1,6 @@
 """TCGDex API client with local JSON cache for enriching parsed deck cards."""
 
+import ast
 import json
 import logging
 import urllib.error
@@ -42,6 +43,46 @@ def _save_cache(cache: dict, cache_path: str) -> None:
         logger.warning(f"Could not save cache to {cache_path}: {exc}")
 
 
+def _parse_python_set_mapping(raw: str, set_mapping_path: str) -> dict[str, str]:
+    """Safely extract SET_CODE_MAP from a Python source file."""
+    try:
+        module = ast.parse(raw, filename=set_mapping_path)
+    except SyntaxError as exc:
+        logger.warning(f"Could not parse Python set mapping at {set_mapping_path}: {exc}")
+        return {}
+
+    for node in module.body:
+        if not isinstance(node, ast.Assign):
+            continue
+
+        if not any(
+            isinstance(target, ast.Name) and target.id == "SET_CODE_MAP"
+            for target in node.targets
+        ):
+            continue
+
+        try:
+            data = ast.literal_eval(node.value)
+        except Exception as exc:
+            logger.warning(
+                f"Could not evaluate SET_CODE_MAP in {set_mapping_path}: {exc}"
+            )
+            return {}
+
+        if not isinstance(data, dict):
+            logger.warning(f"SET_CODE_MAP in {set_mapping_path} is not a dict")
+            return {}
+
+        return {
+            str(set_code).upper(): str(tcgdex_id)
+            for set_code, tcgdex_id in data.items()
+            if isinstance(set_code, str) and isinstance(tcgdex_id, str)
+        }
+
+    logger.warning(f"SET_CODE_MAP not found in {set_mapping_path}")
+    return {}
+
+
 def _parse_set_mapping_file(set_mapping_path: str) -> dict[str, str]:
     """Load mappings from a Python module or JSON file."""
     path = Path(set_mapping_path)
@@ -69,23 +110,7 @@ def _parse_set_mapping_file(set_mapping_path: str) -> dict[str, str]:
             if isinstance(set_code, str) and isinstance(tcgdex_id, str)
         }
 
-    namespace: dict[str, object] = {}
-    try:
-        exec(raw, {}, namespace)
-    except Exception as exc:
-        logger.warning(f"Could not parse Python set mapping at {set_mapping_path}: {exc}")
-        return {}
-
-    data = namespace.get("SET_CODE_MAP", {})
-    if not isinstance(data, dict):
-        logger.warning(f"SET_CODE_MAP not found in {set_mapping_path}")
-        return {}
-
-    return {
-        str(set_code).upper(): str(tcgdex_id)
-        for set_code, tcgdex_id in data.items()
-        if isinstance(set_code, str) and isinstance(tcgdex_id, str)
-    }
+    return _parse_python_set_mapping(raw, set_mapping_path)
 
 
 def _load_set_code_map(set_mapping_path: str) -> dict[str, str]:
@@ -243,7 +268,7 @@ def _lookup_card(
 
     Strategy:
       1. Cache check: return cached result if present.
-      2. Primary: if set_code in SET_CODE_MAP → ID-based lookup (zero-padded).
+      2. Primary: if set_code in SET_CODE_MAP -> ID-based lookup (zero-padded).
       3. Fallback: name-search endpoint, filter by matching localId.
       4. Not found: log warning and return 'unknown'.
 
@@ -305,7 +330,7 @@ def enrich_deck(
     """Look up each card on TCGDex API and return list of Card objects with subcategory filled.
 
     Args:
-        parsed_cards: Output of parse_deck_list — list of card dicts.
+        parsed_cards: Output of parse_deck_list -> list of card dicts.
         cache_path: Path to JSON cache file (created if absent).
 
     Returns:
