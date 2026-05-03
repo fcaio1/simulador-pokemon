@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from src.parser import parse_deck_list
 from src.simulator_service import SAMPLE_DECK_LIST, build_deck, build_report
 
 st.set_page_config(
@@ -29,19 +30,41 @@ with st.sidebar:
 
     st.divider()
 
-    target_input = st.text_input(
-        "Cartas Alvo (separadas por vírgula)",
-        value="Riolu",
-        help="Cartas que você quer ter na mão inicial. Ex: Riolu, Mega Lucario ex",
-    )
-    target_card_names = [n.strip() for n in target_input.split(",") if n.strip()]
+    try:
+        _parsed = parse_deck_list(deck_list_text)
+    except Exception:
+        _parsed = []
 
-    search_input = st.text_input(
-        "Buscadores (separados por vírgula)",
-        value="Ultra Ball,Buddy-Buddy Poffin,Poké Pad",
+    _all_names = sorted({c["name"] for c in _parsed})
+    _pokemon_names = sorted({c["name"] for c in _parsed if c["category"] == "pokemon"})
+
+    if "target_cards_sel" not in st.session_state:
+        st.session_state["target_cards_sel"] = _pokemon_names
+    else:
+        st.session_state["target_cards_sel"] = [
+            n for n in st.session_state["target_cards_sel"] if n in _all_names
+        ]
+
+    if "search_cards_sel" not in st.session_state:
+        st.session_state["search_cards_sel"] = []
+    else:
+        st.session_state["search_cards_sel"] = [
+            n for n in st.session_state["search_cards_sel"] if n in _all_names
+        ]
+
+    target_card_names = st.multiselect(
+        "Cartas Alvo",
+        options=_all_names,
+        key="target_cards_sel",
+        help="Cartas que você quer ter na mão inicial.",
+    )
+
+    target_search_names = st.multiselect(
+        "Buscadores",
+        options=_all_names,
+        key="search_cards_sel",
         help="Cartas que buscam os alvos. Ex: Ultra Ball, Buddy-Buddy Poffin",
     )
-    target_search_names = [n.strip() for n in search_input.split(",") if n.strip()]
 
     st.divider()
 
