@@ -13,4 +13,4 @@ __pycache__/
 *.pyo
 *.pyd
 *.pyc
-card_cache.json
+docs
