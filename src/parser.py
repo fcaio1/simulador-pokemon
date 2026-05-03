@@ -11,7 +11,8 @@ def _parse_card_line(line: str, category: str) -> dict:
     """Parse a single card line into a card dict.
 
     Raises:
-        ValueError: If the line has fewer than 3 tokens (missing set info).
+        ValueError: If the line has fewer than 3 tokens (missing set info)
+            or if quantity is less than 1.
     """
     tokens = line.split()
     if len(tokens) < 3:
@@ -19,6 +20,8 @@ def _parse_card_line(line: str, category: str) -> dict:
             f"Card line missing set info (expected at least 3 tokens): {line!r}"
         )
     quantity = int(tokens[0])
+    if quantity < 1:
+        raise ValueError(f"Card quantity must be at least 1, got {quantity}")
     set_number = tokens[-1]
     set_code = tokens[-2]
     name = " ".join(tokens[1:-2])
@@ -64,7 +67,6 @@ def parse_deck_list(text: str) -> list[dict]:
             current_category = section
             continue
 
-        # Skip lines from unknown sections
         if current_category is None:
             continue
 

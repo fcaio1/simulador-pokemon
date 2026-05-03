@@ -39,8 +39,6 @@ def test_single_pokemon_card_line() -> None:
 
     assert len(cards) == 1
     card = cards[0]
-    assert card["quantity"] == 4 or card["quantity"] == 1
-    card = cards[0]
     assert card["quantity"] == 1
     assert card["name"] == "Abra"
     assert card["set_code"] == "MEG"
@@ -123,3 +121,11 @@ Unknown: 5
     # Should not raise; only known sections produce cards.
     cards = parse_deck_list(text)
     assert all(c["category"] in ("pokemon", "trainer", "energy") for c in cards)
+
+
+def test_lines_before_first_section_are_skipped() -> None:
+    """Content before any known section header is ignored."""
+    text = "My Deck Name\n\nPokémon: 1\n\n1 Abra MEG 54\n"
+    cards = parse_deck_list(text)
+    assert len(cards) == 1
+    assert cards[0]["name"] == "Abra"
