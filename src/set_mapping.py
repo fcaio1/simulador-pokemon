@@ -16,5 +16,6 @@ SET_CODE_MAP: dict[str, str] = {
     "TEF": "sv05",
     "TWM": "sv06",
     "WHT": "sv10.5w",
-    "SVI":"sv01"
+    "SVI": "sv01",
+    'SCR': 'sv07'
 }
