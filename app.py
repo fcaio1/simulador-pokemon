@@ -39,7 +39,7 @@ with st.sidebar:
     _pokemon_names = sorted({c["name"] for c in _parsed if c["category"] == "pokemon"})
 
     if "target_cards_sel" not in st.session_state:
-        st.session_state["target_cards_sel"] = _pokemon_names
+        st.session_state["target_cards_sel"] = []
     else:
         st.session_state["target_cards_sel"] = [
             n for n in st.session_state["target_cards_sel"] if n in _pokemon_names
