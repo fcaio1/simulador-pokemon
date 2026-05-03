@@ -161,3 +161,14 @@ with st.expander("🔍 Carta Alvo + Buscadores", expanded=True):
 if report.comparison_df is not None:
     with st.expander(f"🎲 Monte Carlo ({int(mc_simulations):,} simulações)", expanded=True):
         st.dataframe(report.comparison_df, use_container_width=True, hide_index=True)
+
+# ---------------------------------------------------------------------------
+# Status bar
+# ---------------------------------------------------------------------------
+
+st.divider()
+cache_info = "cache: card_cache.json"
+mc_info = f"Monte Carlo: {int(mc_simulations):,} sims · seed {int(mc_seed)}"
+ok_info = f"✅ {ok_count}/{deck_size} cartas classificadas"
+
+st.caption(f"{ok_info} · {cache_info} · {mc_info}")
