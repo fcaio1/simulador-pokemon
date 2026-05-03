@@ -2,7 +2,7 @@
 
 import json
 import logging
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -131,15 +131,27 @@ def test_cache_miss_set_in_map_id_404_falls_back_to_name_search(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_cache_miss_set_not_in_map_uses_name_search(tmp_path):
-    """When set code is not in SET_CODE_MAP, skip ID lookup and go straight to name search."""
+    """When set code is not in SET_CODE_MAP, skip ID lookup, then learn the set mapping."""
     cache_file = tmp_path / "cache.json"
+    mapping_file = tmp_path / "set_mapping.py"
+    mapping_file.write_text('SET_CODE_MAP = {"MEG": "me01"}\n', encoding="utf-8")
     # "XYZ" is not in SET_CODE_MAP
-    api_card = {"category": "Pokemon", "stage": "Basic", "name": "Abra", "localId": "099"}
+    api_card = {
+        "category": "Pokemon",
+        "stage": "Basic",
+        "name": "Abra",
+        "localId": "099",
+        "set": {"id": "sv99"},
+    }
 
     parsed_cards = [_make_parsed_card(set_code="XYZ", set_number="99")]
 
     with patch("urllib.request.urlopen", return_value=_make_http_response([api_card])) as mock_urlopen:
-        result = enrich_deck(parsed_cards, cache_path=str(cache_file))
+        result = enrich_deck(
+            parsed_cards,
+            cache_path=str(cache_file),
+            set_mapping_path=str(mapping_file),
+        )
 
     assert len(result) == 1
     assert result[0].subcategory == "basic"
@@ -152,6 +164,38 @@ def test_cache_miss_set_not_in_map_uses_name_search(tmp_path):
 
     saved = json.loads(cache_file.read_text())
     assert "XYZ-99" in saved
+
+    saved_mapping = mapping_file.read_text(encoding="utf-8")
+    assert '"XYZ": "sv99"' in saved_mapping
+
+
+def test_learned_set_mapping_is_used_for_future_id_lookup(tmp_path):
+    """A learned set mapping should be reused on the next lookup via ID-based URL."""
+    cache_file = tmp_path / "cache.json"
+    mapping_file = tmp_path / "set_mapping.py"
+    mapping_file.write_text('SET_CODE_MAP = {"XYZ": "sv99"}\n', encoding="utf-8")
+
+    api_card = {
+        "category": "Pokemon",
+        "stage": "Basic",
+        "name": "Abra",
+        "localId": "099",
+        "set": {"id": "sv99"},
+    }
+
+    parsed_cards = [_make_parsed_card(set_code="XYZ", set_number="99")]
+
+    with patch("urllib.request.urlopen", return_value=_make_http_response(api_card)) as mock_urlopen:
+        result = enrich_deck(
+            parsed_cards,
+            cache_path=str(cache_file),
+            set_mapping_path=str(mapping_file),
+        )
+
+    assert len(result) == 1
+    assert result[0].subcategory == "basic"
+    called_url = str(mock_urlopen.call_args_list[0].args[0].full_url)
+    assert "sv99-099" in called_url
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +219,32 @@ def test_both_lookups_fail_returns_unknown_with_warning(tmp_path, caplog):
     assert len(result) == 1
     assert result[0].subcategory == "unknown"
     assert any("Abra" in record.message for record in caplog.records)
+    assert not cache_file.exists()
+
+
+def test_not_found_does_not_modify_existing_cache(tmp_path, caplog):
+    """A failed lookup must not add entries to an existing cache file."""
+    cache_file = tmp_path / "cache.json"
+    original_cache = {
+        "MEG-54": {
+            "category": "Pokemon",
+            "stage": "Basic",
+            "name": "Abra",
+            "localId": "054",
+        }
+    }
+    cache_file.write_text(json.dumps(original_cache), encoding="utf-8")
+
+    empty_list_resp = _make_http_response([])
+    parsed_cards = [_make_parsed_card(name="Missing Card", set_code="XYZ", set_number="999")]
+
+    with caplog.at_level(logging.WARNING, logger="src.api_client"):
+        with patch("urllib.request.urlopen", side_effect=[empty_list_resp]):
+            result = enrich_deck(parsed_cards, cache_path=str(cache_file))
+
+    assert len(result) == 1
+    assert result[0].subcategory == "unknown"
+    assert json.loads(cache_file.read_text(encoding="utf-8")) == original_cache
 
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,8 @@ _TIMEOUT = 10
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_SET_MAPPING_PATH = str(Path(__file__).with_name("set_mapping.py"))
+
 
 # ---------------------------------------------------------------------------
 # Cache helpers
@@ -38,6 +40,95 @@ def _save_cache(cache: dict, cache_path: str) -> None:
         )
     except Exception as exc:
         logger.warning(f"Could not save cache to {cache_path}: {exc}")
+
+
+def _parse_set_mapping_file(set_mapping_path: str) -> dict[str, str]:
+    """Load mappings from a Python module or JSON file."""
+    path = Path(set_mapping_path)
+
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:
+        logger.warning(f"Could not read set mapping at {set_mapping_path}: {exc}")
+        return {}
+
+    if path.suffix.lower() == ".json":
+        try:
+            data = json.loads(raw)
+        except Exception as exc:
+            logger.warning(f"Could not parse JSON set mapping at {set_mapping_path}: {exc}")
+            return {}
+        if not isinstance(data, dict):
+            logger.warning(f"Set mapping at {set_mapping_path} is not a JSON object")
+            return {}
+        return {
+            str(set_code).upper(): str(tcgdex_id)
+            for set_code, tcgdex_id in data.items()
+            if isinstance(set_code, str) and isinstance(tcgdex_id, str)
+        }
+
+    namespace: dict[str, object] = {}
+    try:
+        exec(raw, {}, namespace)
+    except Exception as exc:
+        logger.warning(f"Could not parse Python set mapping at {set_mapping_path}: {exc}")
+        return {}
+
+    data = namespace.get("SET_CODE_MAP", {})
+    if not isinstance(data, dict):
+        logger.warning(f"SET_CODE_MAP not found in {set_mapping_path}")
+        return {}
+
+    return {
+        str(set_code).upper(): str(tcgdex_id)
+        for set_code, tcgdex_id in data.items()
+        if isinstance(set_code, str) and isinstance(tcgdex_id, str)
+    }
+
+
+def _load_set_code_map(set_mapping_path: str) -> dict[str, str]:
+    """Load static mappings plus any persisted mappings from disk."""
+    mappings = dict(SET_CODE_MAP)
+    mappings.update(_parse_set_mapping_file(set_mapping_path))
+    return mappings
+
+
+def _render_set_mapping_module(mappings: dict[str, str]) -> str:
+    """Render the Python source for src/set_mapping.py."""
+    lines = ['"""Set code mapping from PTCG Live codes to TCGDex API set IDs."""', "", "SET_CODE_MAP: dict[str, str] = {"]
+    for set_code, tcgdex_id in sorted(mappings.items()):
+        lines.append(f'    "{set_code}": "{tcgdex_id}",')
+    lines.extend(["}", ""])
+    return "\n".join(lines)
+
+
+def _save_learned_set_mapping(
+    set_code: str,
+    tcgdex_id: str,
+    set_mapping_path: str,
+) -> None:
+    """Persist one learned set mapping to disk for future lookups."""
+    path = Path(set_mapping_path)
+
+    normalized_set_code = set_code.upper()
+    mappings = _load_set_code_map(set_mapping_path)
+    if mappings.get(normalized_set_code) == tcgdex_id:
+        return
+
+    mappings[normalized_set_code] = tcgdex_id
+
+    try:
+        if path.suffix.lower() == ".json":
+            path.write_text(
+                json.dumps(mappings, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        else:
+            path.write_text(_render_set_mapping_module(mappings), encoding="utf-8")
+    except Exception as exc:
+        logger.warning(f"Could not save set mapping to {set_mapping_path}: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +190,21 @@ def _fetch_by_name(name: str, set_number: str) -> dict | None:
     return None
 
 
+def _extract_set_id(api_data: dict) -> str | None:
+    """Extract TCGDex set ID from card payload."""
+    set_info = api_data.get("set")
+    if isinstance(set_info, dict):
+        set_id = set_info.get("id")
+        if isinstance(set_id, str) and set_id:
+            return set_id
+
+    card_id = api_data.get("id")
+    if isinstance(card_id, str) and "-" in card_id:
+        return card_id.rsplit("-", 1)[0]
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Subcategory mapping
 # ---------------------------------------------------------------------------
@@ -125,7 +231,13 @@ def _map_subcategory(api_data: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def _lookup_card(
-    name: str, set_code: str, set_number: str, cache: dict, cache_path: str
+    name: str,
+    set_code: str,
+    set_number: str,
+    cache: dict,
+    cache_path: str,
+    set_code_map: dict[str, str],
+    set_mapping_path: str,
 ) -> str:
     """Return subcategory for one card, using cache or API.
 
@@ -153,8 +265,10 @@ def _lookup_card(
     api_data: dict | None = None
 
     # Primary: ID-based lookup via SET_CODE_MAP
-    if set_code.upper() in SET_CODE_MAP:
-        tcgdex_id = SET_CODE_MAP[set_code.upper()]
+    normalized_set_code = set_code.upper()
+
+    if normalized_set_code in set_code_map:
+        tcgdex_id = set_code_map[normalized_set_code]
         api_data = _fetch_by_id(tcgdex_id, set_number)
 
     # Fallback: name search
@@ -164,6 +278,15 @@ def _lookup_card(
     if api_data is None:
         logger.warning(f"Card not found: {name} ({cache_key})")
         return "unknown"
+
+    learned_set_id = _extract_set_id(api_data)
+    if normalized_set_code not in SET_CODE_MAP and learned_set_id:
+        set_code_map[normalized_set_code] = learned_set_id
+        _save_learned_set_mapping(
+            set_code=normalized_set_code,
+            tcgdex_id=learned_set_id,
+            set_mapping_path=set_mapping_path,
+        )
 
     cache[cache_key] = api_data
     _save_cache(cache, cache_path)
@@ -177,6 +300,7 @@ def _lookup_card(
 def enrich_deck(
     parsed_cards: list[dict],
     cache_path: str = "card_cache.json",
+    set_mapping_path: str = _DEFAULT_SET_MAPPING_PATH,
 ) -> list[Card]:
     """Look up each card on TCGDex API and return list of Card objects with subcategory filled.
 
@@ -188,6 +312,7 @@ def enrich_deck(
         List of Card dataclass instances with subcategory populated.
     """
     cache = _load_cache(cache_path)
+    set_code_map = _load_set_code_map(set_mapping_path)
     result: list[Card] = []
 
     for card_dict in parsed_cards:
@@ -197,6 +322,8 @@ def enrich_deck(
             set_number=card_dict["set_number"],
             cache=cache,
             cache_path=cache_path,
+            set_code_map=set_code_map,
+            set_mapping_path=set_mapping_path,
         )
         result.append(
             Card(
