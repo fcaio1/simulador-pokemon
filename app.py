@@ -42,7 +42,7 @@ with st.sidebar:
         st.session_state["target_cards_sel"] = _pokemon_names
     else:
         st.session_state["target_cards_sel"] = [
-            n for n in st.session_state["target_cards_sel"] if n in _all_names
+            n for n in st.session_state["target_cards_sel"] if n in _pokemon_names
         ]
 
     if "search_cards_sel" not in st.session_state:
@@ -54,7 +54,7 @@ with st.sidebar:
 
     target_card_names = st.multiselect(
         "Cartas Alvo",
-        options=_all_names,
+        options=_pokemon_names,
         key="target_cards_sel",
         help="Cartas que você quer ter na mão inicial.",
     )
