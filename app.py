@@ -121,3 +121,43 @@ col2.metric("Mulligan", mulligan_pct)
 col3.metric("Supporter T1", supporter_pct)
 col4.metric("Dead Hand", dead_hand_pct)
 col5.metric("Cartas OK", f"{ok_count}/{deck_size}")
+
+# ---------------------------------------------------------------------------
+# Seções de resultado
+# ---------------------------------------------------------------------------
+
+st.divider()
+
+# 1. Breakdown do Deck
+with st.expander("📋 Breakdown do Deck", expanded=True):
+    st.dataframe(report.breakdown_df, use_container_width=True, hide_index=True)
+
+# 2. Mão Inicial
+with st.expander("✋ Mão Inicial", expanded=True):
+    st.dataframe(report.opening_df, use_container_width=True, hide_index=True)
+
+# 3. Starters por Pokémon
+with st.expander("🎯 Starters por Pokémon", expanded=True):
+    df_starters = report.starters_df.copy()
+    st.dataframe(df_starters, use_container_width=True, hide_index=True)
+
+# 4. Prize Cards
+with st.expander("🏆 Prize Cards", expanded=True):
+    st.dataframe(report.prizes_df, use_container_width=True, hide_index=True)
+
+# 5. Draw por Turno
+with st.expander("🃏 Draw por Turno", expanded=True):
+    st.dataframe(report.draw_df, use_container_width=True, hide_index=True)
+
+# 6. Supporter & Dead Hand
+with st.expander("💼 Supporter & Dead Hand", expanded=True):
+    st.dataframe(report.support_df, use_container_width=True, hide_index=True)
+
+# 7. Carta Alvo + Buscadores
+with st.expander("🔍 Carta Alvo + Buscadores", expanded=True):
+    st.dataframe(report.target_df, use_container_width=True, hide_index=True)
+
+# 8. Monte Carlo
+if report.comparison_df is not None:
+    with st.expander(f"🎲 Monte Carlo ({int(mc_simulations):,} simulações)", expanded=True):
+        st.dataframe(report.comparison_df, use_container_width=True, hide_index=True)
