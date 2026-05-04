@@ -52,17 +52,23 @@ def _parse_python_set_mapping(raw: str, set_mapping_path: str) -> dict[str, str]
         return {}
 
     for node in module.body:
-        if not isinstance(node, ast.Assign):
-            continue
+        value_node: ast.AST | None = None
 
-        if not any(
-            isinstance(target, ast.Name) and target.id == "SET_CODE_MAP"
-            for target in node.targets
-        ):
+        if isinstance(node, ast.Assign):
+            if any(
+                isinstance(target, ast.Name) and target.id == "SET_CODE_MAP"
+                for target in node.targets
+            ):
+                value_node = node.value
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == "SET_CODE_MAP":
+                value_node = node.value
+
+        if value_node is None:
             continue
 
         try:
-            data = ast.literal_eval(node.value)
+            data = ast.literal_eval(value_node)
         except Exception as exc:
             logger.warning(
                 f"Could not evaluate SET_CODE_MAP in {set_mapping_path}: {exc}"
@@ -187,6 +193,7 @@ def _fetch_by_id(tcgdex_id: str, set_number: str) -> dict | None:
     padded = set_number.zfill(3)
     url = f"{_BASE_URL}/{tcgdex_id}-{padded}"
     return _get_json(url)
+    # return url
 
 
 def _fetch_by_name(name: str, set_number: str) -> dict | None:
@@ -210,7 +217,9 @@ def _fetch_by_name(name: str, set_number: str) -> dict | None:
     for card in result:
         local_id = str(card.get("localId", ""))
         if local_id.lstrip("0") == normalized_number:
-            return card
+            # return card
+            return _fetch_by_id(card.get("id", "").split('-')[0], set_number)
+            # return 'test'
 
     return None
 

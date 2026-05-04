@@ -4,9 +4,7 @@ import json
 import logging
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from src.api_client import enrich_deck
+from src.api_client import _load_set_code_map, enrich_deck
 from src.deck import Card
 
 
@@ -108,15 +106,20 @@ def test_cache_miss_set_in_map_id_404_falls_back_to_name_search(tmp_path):
     import urllib.error
 
     cache_file = tmp_path / "cache.json"
+    name_search_card = {"id": "me01-054", "name": "Abra", "localId": "054"}
     api_card = {"category": "Pokemon", "stage": "Basic", "name": "Abra", "localId": "054"}
 
     # First call (ID-based) → 404; second call (name search) → list with card
     http_404 = urllib.error.HTTPError(url="", code=404, msg="Not Found", hdrs=None, fp=None)
-    name_search_resp = _make_http_response([api_card])
+    name_search_resp = _make_http_response([name_search_card])
+    resolved_card_resp = _make_http_response(api_card)
 
     parsed_cards = [_make_parsed_card(set_code="MEG", set_number="54")]
 
-    with patch("urllib.request.urlopen", side_effect=[http_404, name_search_resp]):
+    with patch(
+        "urllib.request.urlopen",
+        side_effect=[http_404, name_search_resp, resolved_card_resp],
+    ):
         result = enrich_deck(parsed_cards, cache_path=str(cache_file))
 
     assert len(result) == 1
@@ -134,8 +137,16 @@ def test_cache_miss_set_not_in_map_uses_name_search(tmp_path):
     """When set code is not in SET_CODE_MAP, skip ID lookup, then learn the set mapping."""
     cache_file = tmp_path / "cache.json"
     mapping_file = tmp_path / "set_mapping.py"
-    mapping_file.write_text('SET_CODE_MAP = {"MEG": "me01"}\n', encoding="utf-8")
+    mapping_file.write_text(
+        'SET_CODE_MAP: dict[str, str] = {"MEG": "me01"}\n',
+        encoding="utf-8",
+    )
     # "XYZ" is not in SET_CODE_MAP
+    name_search_card = {
+        "id": "sv99-099",
+        "name": "Abra",
+        "localId": "099",
+    }
     api_card = {
         "category": "Pokemon",
         "stage": "Basic",
@@ -146,7 +157,13 @@ def test_cache_miss_set_not_in_map_uses_name_search(tmp_path):
 
     parsed_cards = [_make_parsed_card(set_code="XYZ", set_number="99")]
 
-    with patch("urllib.request.urlopen", return_value=_make_http_response([api_card])) as mock_urlopen:
+    with patch(
+        "urllib.request.urlopen",
+        side_effect=[
+            _make_http_response([name_search_card]),
+            _make_http_response(api_card),
+        ],
+    ) as mock_urlopen:
         result = enrich_deck(
             parsed_cards,
             cache_path=str(cache_file),
@@ -156,24 +173,28 @@ def test_cache_miss_set_not_in_map_uses_name_search(tmp_path):
     assert len(result) == 1
     assert result[0].subcategory == "basic"
 
-    # Only one HTTP call should be made (the name search), no ID-based URL
-    assert mock_urlopen.call_count == 1
-    called_url = str(mock_urlopen.call_args_list[0].args[0].full_url)
-    assert "name=" in called_url
-    assert "xyz" not in called_url.lower() or "name=" in called_url
+    assert mock_urlopen.call_count == 2
+    name_search_url = str(mock_urlopen.call_args_list[0].args[0].full_url)
+    resolved_card_url = str(mock_urlopen.call_args_list[1].args[0].full_url)
+    assert "name=" in name_search_url
+    assert "sv99-099" in resolved_card_url
 
     saved = json.loads(cache_file.read_text())
     assert "XYZ-99" in saved
 
     saved_mapping = mapping_file.read_text(encoding="utf-8")
     assert '"XYZ": "sv99"' in saved_mapping
+    assert "SET_CODE_MAP: dict[str, str] = {" in saved_mapping
 
 
 def test_learned_set_mapping_is_used_for_future_id_lookup(tmp_path):
     """A learned set mapping should be reused on the next lookup via ID-based URL."""
     cache_file = tmp_path / "cache.json"
     mapping_file = tmp_path / "set_mapping.py"
-    mapping_file.write_text('SET_CODE_MAP = {"XYZ": "sv99"}\n', encoding="utf-8")
+    mapping_file.write_text(
+        'SET_CODE_MAP: dict[str, str] = {"XYZ": "sv99"}\n',
+        encoding="utf-8",
+    )
 
     api_card = {
         "category": "Pokemon",
@@ -201,6 +222,29 @@ def test_learned_set_mapping_is_used_for_future_id_lookup(tmp_path):
 # ---------------------------------------------------------------------------
 # Test 5 — Both lookups fail → unknown + warning logged
 # ---------------------------------------------------------------------------
+
+def test_load_set_code_map_accepts_annotated_assignment(tmp_path):
+    """Annotated SET_CODE_MAP assignments should be parsed from Python files."""
+    mapping_file = tmp_path / "set_mapping.py"
+    mapping_file.write_text(
+        '\n'.join(
+            [
+                '"""Temporary set mapping."""',
+                "",
+                "SET_CODE_MAP: dict[str, str] = {",
+                '    "xyz": "sv99",',
+                "}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    set_code_map = _load_set_code_map(str(mapping_file))
+
+    assert set_code_map["XYZ"] == "sv99"
+    assert set_code_map["MEG"] == "me01"
+
 
 def test_both_lookups_fail_returns_unknown_with_warning(tmp_path, caplog):
     """When both ID-based and name-search lookups fail, subcategory is 'unknown' and a warning is logged."""
