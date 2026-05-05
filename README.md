@@ -35,6 +35,7 @@ Na barra lateral, o usuário pode:
 
 Depois da análise, a aplicação exibe:
 
+- **deck list visual**: grid com a imagem de cada carta, badge de quantidade e interações de hover e clique
 - breakdown do deck por categoria e subcategoria
 - estatísticas da mão inicial
 - tabela de starters por Pokémon básico
@@ -44,16 +45,23 @@ Depois da análise, a aplicação exibe:
 - análise de cartas-alvo e buscadores
 - comparação entre cálculo teórico e simulação
 
+### Deck List Visual
+
+As cartas são exibidas em um grid organizado por categoria (Pokémon → Trainer → Energy), cada uma com sua imagem e um badge vermelho indicando a quantidade no deck.
+
+- **Hover**: ao passar o mouse sobre uma carta, uma prévia ampliada (180 px) aparece flutuando sobre o bloco, sem recorte
+- **Clique**: abre a carta em modal full-page com fundo escuro; fecha com o botão ✕, clicando fora da imagem ou pressionando Escape
+
 ## Como funciona internamente
 
 O fluxo principal do projeto é este:
 
 1. O parser lê a deck list em texto no formato do PTCG Live.
-2. Cada carta é enriquecida com dados da TCGDex.
+2. Cada carta é enriquecida com dados da TCGDex, incluindo subcategoria e URL de imagem.
 3. O projeto classifica as cartas em subcategorias como `basic`, `supporter`, `item`, `basic_energy` e `special_energy`.
 4. O módulo de cálculo aplica fórmulas hipergeométricas para probabilidades teóricas.
 5. O módulo de Monte Carlo simula milhares de mãos para validar os resultados.
-6. O serviço monta tabelas prontas para exibição no Streamlit.
+6. O serviço monta tabelas e o grid visual prontos para exibição no Streamlit.
 
 ## Estrutura do projeto
 
@@ -76,10 +84,10 @@ O fluxo principal do projeto é este:
 
 ### Principais arquivos
 
-- `app.py`: interface web em Streamlit
+- `app.py`: interface web em Streamlit, incluindo deck list visual com hover e modal
 - `src/parser.py`: parser da deck list exportada do PTCG Live
-- `src/api_client.py`: integração com a API TCGDex, cache local e aprendizado de mapeamentos de sets
-- `src/deck.py`: modelos `Card` e `Deck`
+- `src/api_client.py`: integração com a API TCGDex, cache local, fallback de imagem via Limitless CDN e aprendizado de mapeamentos de sets
+- `src/deck.py`: modelos `Card` (com campo `image`) e `Deck`
 - `src/calculator.py`: fórmulas de probabilidade
 - `src/monte_carlo.py`: simulação empírica de mãos iniciais
 - `src/simulator_service.py`: orquestração da análise e geração das tabelas da interface
@@ -114,14 +122,22 @@ O parser aceita cabeçalhos como `Pokémon:`, `Pokemon:`, `Trainer:` e `Energy:`
 
 ## Cache e integração com TCGDex
 
-O projeto usa a API do TCGDex para descobrir a categoria e subcategoria real de cada carta. Para evitar consultas repetidas, os resultados ficam salvos em `card_cache.json`.
+O projeto usa a API do TCGDex para descobrir a categoria, subcategoria e URL de imagem de cada carta. Para evitar consultas repetidas, os resultados ficam salvos em `card_cache.json`, incluindo a URL de imagem.
+
+Cartas que a TCGDex não retorna imagem recebem automaticamente um URL de fallback da CDN do Limitless TCG no formato:
+
+```
+https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/{SET}/{SET}_{NUM}_R_EN.png
+```
+
+Esse URL de fallback é salvo no cache para que consultas futuras não precisem recalculá-lo.
 
 Além disso, o projeto mantém um mapeamento entre códigos de set do PTCG Live e IDs da TCGDex em `src/set_mapping.py`. Quando encontra um set ainda não mapeado, ele tenta aprender esse vínculo automaticamente.
 
 Se uma carta não for encontrada:
 
 - ela permanece com subcategoria `unknown`
-- a interface mostra um aviso
+- a interface mostra um aviso com o nome da carta
 - o restante da análise continua funcionando
 
 ## Requisitos
@@ -182,7 +198,7 @@ Este projeto ajuda a responder perguntas como:
 
 - a análise depende da classificação correta da TCGDex
 - cartas não encontradas podem afetar parte das métricas
-- a interface é focada principalmente em estatísticas de mão inicial e consistência
+- o URL de fallback de imagem via Limitless CDN usa sempre o sufixo `_R_EN.png`; variantes de raridade diferentes podem não carregar a imagem correta
 - o notebook e a interface podem ter sobreposição de uso, mas a aplicação principal hoje é o Streamlit
 
 ## Próximos passos possíveis
