@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import streamlit as st
+import streamlit.components.v1 as components
 
 from src.parser import parse_deck_list
 from src.simulator_service import SAMPLE_DECK_LIST, build_deck, build_report
@@ -150,6 +152,130 @@ col5.metric("Cartas OK", f"{ok_count}/{deck_size}")
 # ---------------------------------------------------------------------------
 
 st.divider()
+
+# 0. Deck List Visual
+with st.expander("🃏 Deck List", expanded=True):
+    _category_order = {"pokemon": 0, "trainer": 1, "energy": 2}
+    _ordered_cards = sorted(
+        deck.cards,
+        key=lambda c: (_category_order.get(c.category, 3), c.name),
+    )
+    _badge = (
+        'position:absolute;bottom:4px;left:4px;background:#e53935;color:white;'
+        'border-radius:50%;width:22px;height:22px;font-size:13px;font-weight:bold;'
+        'display:flex;align-items:center;justify-content:center;'
+    )
+    _cards_html = ""
+    for _card in _ordered_cards:
+        if _card.image:
+            _cards_html += (
+                f'<div class="ptcg-card" data-img="{_card.image}" onclick="openPtcgModal(\'{_card.image}\')">'
+                f'<img src="{_card.image}" width="90" style="border-radius:6px;display:block;" title="{_card.name}"/>'
+                f'<span style="{_badge}">{_card.quantity}</span>'
+                f'</div>'
+            )
+        else:
+            _cards_html += (
+                f'<div class="ptcg-card" style="width:90px;height:126px;background:#333;'
+                f'border-radius:6px;color:white;font-size:10px;text-align:center;'
+                f'padding-top:50px;box-sizing:border-box;">'
+                f'{_card.name[:14]}'
+                f'<span style="{_badge}">{_card.quantity}</span>'
+                f'</div>'
+            )
+    _rows = math.ceil(len(_ordered_cards) / 9)
+    _height = max(180, _rows * 145 + 20)
+    components.html(
+        f"""
+        <style>
+        body {{ margin: 0; }}
+        .ptcg-card {{
+            position: relative;
+            display: inline-block;
+            margin: 4px;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }}
+        .ptcg-card:hover {{ opacity: 0.85; }}
+        </style>
+        <div style="display:flex;flex-wrap:wrap;gap:2px;">{_cards_html}</div>
+        <script>
+        document.querySelectorAll('.ptcg-card[data-img]').forEach(function(card) {{
+            card.addEventListener('mouseenter', function() {{
+                var p = window.parent.document;
+                var preview = p.getElementById('ptcg-hover');
+                if (!preview) {{
+                    preview = p.createElement('div');
+                    preview.id = 'ptcg-hover';
+                    preview.style.cssText = 'position:fixed;z-index:9998;pointer-events:none;'
+                        + 'transition:opacity 0.15s;border-radius:12px;'
+                        + 'box-shadow:0 8px 32px rgba(0,0,0,0.7);';
+                    preview.innerHTML = '<img id="ptcg-hover-img" style="width:180px;border-radius:12px;display:block;"/>';
+                    p.body.appendChild(preview);
+                }}
+                var iframe = window.frameElement;
+                var ir = iframe.getBoundingClientRect();
+                var cr = this.getBoundingClientRect();
+                var cx = ir.left + cr.left + cr.width  / 2;
+                var cy = ir.top  + cr.top  + cr.height / 2;
+                var pw = 180, ph = 252;
+                var vw = window.parent.innerWidth, vh = window.parent.innerHeight;
+                var left = Math.max(8, Math.min(cx - pw / 2, vw - pw - 8));
+                var top  = Math.max(8, Math.min(cy - ph / 2, vh - ph - 8));
+                preview.style.left = left + 'px';
+                preview.style.top  = top  + 'px';
+                p.getElementById('ptcg-hover-img').src = this.dataset.img;
+                preview.style.display = 'block';
+            }});
+            card.addEventListener('mouseleave', function() {{
+                var preview = window.parent.document.getElementById('ptcg-hover');
+                if (preview) preview.style.display = 'none';
+            }});
+        }});
+
+        // Injeta closePtcgModal no <head> do documento pai (executa no contexto pai,
+        // então `document` dentro dela é o documento do Streamlit, não do iframe)
+        (function() {{
+            var p = window.parent.document;
+            if (p.getElementById('ptcg-modal-script')) return;
+            var sc = p.createElement('script');
+            sc.id = 'ptcg-modal-script';
+            sc.textContent =
+                'function closePtcgModal() {{' +
+                '  var m = document.getElementById("ptcg-modal");' +
+                '  if (m) m.style.display = "none";' +
+                '}}' +
+                'document.addEventListener("keydown", function(e) {{' +
+                '  if (e.key === "Escape") closePtcgModal();' +
+                '}});';
+            p.head.appendChild(sc);
+        }})();
+
+        function openPtcgModal(src) {{
+            var p = window.parent.document;
+            var modal = p.getElementById('ptcg-modal');
+            if (!modal) {{
+                modal = p.createElement('div');
+                modal.id = 'ptcg-modal';
+                modal.setAttribute('onclick', "if(event.target===this)closePtcgModal()");
+                modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;'
+                    + 'background:rgba(0,0,0,0.88);z-index:99999;display:flex;'
+                    + 'align-items:center;justify-content:center;';
+                modal.innerHTML =
+                    '<button onclick="closePtcgModal()" style="position:fixed;top:18px;right:26px;'
+                    + 'background:none;border:none;font-size:42px;color:white;cursor:pointer;'
+                    + 'font-weight:bold;line-height:1;z-index:100000;">&#x2715;</button>'
+                    + '<img id="ptcg-modal-img" style="max-height:88vh;max-width:88vw;'
+                    + 'border-radius:16px;box-shadow:0 0 80px rgba(0,0,0,0.9);"/>';
+                p.body.appendChild(modal);
+            }}
+            p.getElementById('ptcg-modal-img').src = src;
+            modal.style.display = 'flex';
+        }}
+        </script>
+        """,
+        height=_height,
+    )
 
 # 1. Breakdown do Deck
 with st.expander("📋 Breakdown do Deck", expanded=True):

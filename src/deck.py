@@ -12,6 +12,7 @@ class Card:
     set_number: str  # e.g. "54"
     category: str  # 'pokemon' | 'trainer' | 'energy'
     subcategory: str = "unknown"  # see table below
+    image: str = ""
 
 
 @dataclass

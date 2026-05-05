@@ -86,7 +86,8 @@
         "avg30-holo": null
       },
       "tcgplayer": null
-    }
+    },
+    "image": "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/MEP/MEP_009_R_EN.png"
   },
   "MEG-56": {
     "category": "Pokemon",
@@ -737,7 +738,8 @@
         "avg30-holo": null
       },
       "tcgplayer": null
-    }
+    },
+    "image": "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/MEP/MEP_007_R_EN.png"
   },
   "SFA-38": {
     "category": "Pokemon",
@@ -2442,7 +2444,8 @@
     "pricing": {
       "cardmarket": null,
       "tcgplayer": null
-    }
+    },
+    "image": "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/MEE/MEE_005_R_EN.png"
   },
   "JTG-97": {
     "category": "Pokemon",
@@ -8748,7 +8751,8 @@
     "pricing": {
       "cardmarket": null,
       "tcgplayer": null
-    }
+    },
+    "image": "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/MEE/MEE_001_R_EN.png"
   },
   "TWM-14": {
     "category": "Pokemon",
@@ -11525,7 +11529,8 @@
     "pricing": {
       "cardmarket": null,
       "tcgplayer": null
-    }
+    },
+    "image": "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/MEE/MEE_003_R_EN.png"
   },
   "MEE-4": {
     "category": "Energy",
@@ -11564,7 +11569,8 @@
     "pricing": {
       "cardmarket": null,
       "tcgplayer": null
-    }
+    },
+    "image": "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/MEE/MEE_004_R_EN.png"
   },
   "MEE-8": {
     "category": "Energy",
@@ -11603,6 +11609,7 @@
     "pricing": {
       "cardmarket": null,
       "tcgplayer": null
-    }
+    },
+    "image": "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci/MEE/MEE_008_R_EN.png"
   }
 }

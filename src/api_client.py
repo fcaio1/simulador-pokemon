@@ -12,10 +12,26 @@ from src.set_mapping import SET_CODE_MAP
 
 _BASE_URL = "https://api.tcgdex.net/v2/en/cards"
 _TIMEOUT = 10
+_LIMITLESS_CDN = "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/tpci"
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SET_MAPPING_PATH = str(Path(__file__).with_name("set_mapping.py"))
+
+def _build_limitless_url(set_code: str, set_number: str) -> str:
+    """Build Limitless TCG CDN image URL as fallback when TCGDex has no image."""
+    padded = set_number.zfill(3)
+    sc = set_code.upper()
+    return f"{_LIMITLESS_CDN}/{sc}/{sc}_{padded}_R_EN.png"
+
+
+def _resolve_image_url(image: str) -> str:
+    """Return final renderable image URL. Limitless URLs end in .png and are used as-is; TCGDex base URLs get /high.webp appended."""
+    if not image:
+        return ""
+    if image.endswith((".png", ".webp", ".jpg")):
+        return image
+    return f"{image}/high.webp"
 
 
 # ---------------------------------------------------------------------------
@@ -272,14 +288,14 @@ def _lookup_card(
     cache_path: str,
     set_code_map: dict[str, str],
     set_mapping_path: str,
-) -> str:
-    """Return subcategory for one card, using cache or API.
+) -> tuple[str, str]:
+    """Return (subcategory, image_url) for one card, using cache or API.
 
     Strategy:
       1. Cache check: return cached result if present.
       2. Primary: if set_code in SET_CODE_MAP -> ID-based lookup (zero-padded).
       3. Fallback: name-search endpoint, filter by matching localId.
-      4. Not found: log warning and return 'unknown'.
+      4. Not found: log warning and return ('unknown', '').
 
     Args:
         name: Card name (used for name-based API search).
@@ -289,12 +305,18 @@ def _lookup_card(
         cache_path: Path to JSON cache file on disk.
 
     Returns:
-        Subcategory string (e.g. 'basic', 'supporter', 'basic_energy', 'unknown').
+        Tuple of (subcategory, image_url).
     """
     cache_key = f"{set_code.upper()}-{set_number}"
 
     if cache_key in cache:
-        return _map_subcategory(cache[cache_key])
+        data = cache[cache_key]
+        img = data.get("image", "")
+        if not img:
+            img = _build_limitless_url(set_code, set_number)
+            data["image"] = img
+            _save_cache(cache, cache_path)
+        return _map_subcategory(data), _resolve_image_url(img)
 
     api_data: dict | None = None
 
@@ -311,7 +333,8 @@ def _lookup_card(
 
     if api_data is None:
         logger.warning(f"Card not found: {name} ({cache_key})")
-        return "unknown"
+        img = _build_limitless_url(set_code, set_number)
+        return "unknown", img
 
     learned_set_id = _extract_set_id(api_data)
     if normalized_set_code not in SET_CODE_MAP and learned_set_id:
@@ -322,9 +345,13 @@ def _lookup_card(
             set_mapping_path=set_mapping_path,
         )
 
+    img = api_data.get("image", "")
+    if not img:
+        img = _build_limitless_url(set_code, set_number)
+        api_data["image"] = img
     cache[cache_key] = api_data
     _save_cache(cache, cache_path)
-    return _map_subcategory(api_data)
+    return _map_subcategory(api_data), _resolve_image_url(img)
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +377,7 @@ def enrich_deck(
     result: list[Card] = []
 
     for card_dict in parsed_cards:
-        subcategory = _lookup_card(
+        subcategory, image = _lookup_card(
             name=card_dict["name"],
             set_code=card_dict["set_code"],
             set_number=card_dict["set_number"],
@@ -367,6 +394,7 @@ def enrich_deck(
                 set_number=card_dict["set_number"],
                 category=card_dict["category"],
                 subcategory=subcategory,
+                image=image,
             )
         )
 
