@@ -93,6 +93,7 @@ def build_report(
     target_search_names: list[str],
     mc_simulations: int = 0,
     mc_seed: int = 42,
+    mc_combo: list[str] | None = None,
 ) -> SimulationReport:
     """Build the simulator tables used by the frontend."""
     deck_size = deck.total_cards
@@ -102,31 +103,37 @@ def build_report(
     )
     total_energy = sum(card.quantity for card in deck.cards if card.category == "energy")
 
-    breakdown_df = pd.DataFrame(
-        {
-            "Category": ["Pokémon", "", "Trainer", "", "", "", "Energy", ""],
-            "Subcategory": [
-                "Basic",
-                "Other",
-                "Item",
-                "Supporter",
-                "Stadium",
-                "Tool",
-                "Basic",
-                "Special",
-            ],
-            "#": [
-                sum(card.quantity for card in deck.cards if card.subcategory == "basic"),
-                sum(card.quantity for card in deck.cards if card.subcategory == "other"),
-                sum(card.quantity for card in deck.cards if card.subcategory == "item"),
-                sum(card.quantity for card in deck.cards if card.subcategory == "supporter"),
-                sum(card.quantity for card in deck.cards if card.subcategory == "stadium"),
-                sum(card.quantity for card in deck.cards if card.subcategory == "tool"),
-                sum(card.quantity for card in deck.cards if card.subcategory == "basic_energy"),
-                sum(card.quantity for card in deck.cards if card.subcategory == "special_energy"),
-            ],
-        }
+    def _poke_stage(stage_val: str) -> int:
+        return sum(
+            card.quantity for card in deck.cards
+            if card.category == "pokemon" and card.stage == stage_val
+        )
+
+    n_basic_poke  = _poke_stage("Basic")
+    n_stage1      = _poke_stage("Stage1")
+    n_stage2      = _poke_stage("Stage2")
+    n_other_poke  = sum(
+        card.quantity for card in deck.cards
+        if card.category == "pokemon" and card.stage not in ("Basic", "Stage1", "Stage2")
     )
+
+    breakdown_rows = [
+        ("Pokémon", "Basic",    n_basic_poke),
+        ("",        "Stage 1",  n_stage1),
+        ("",        "Stage 2",  n_stage2),
+    ]
+    if n_other_poke:
+        breakdown_rows.append(("", "Other", n_other_poke))
+    breakdown_rows += [
+        ("Trainer", "Item",      sum(card.quantity for card in deck.cards if card.subcategory == "item")),
+        ("",        "Supporter", sum(card.quantity for card in deck.cards if card.subcategory == "supporter")),
+        ("",        "Stadium",   sum(card.quantity for card in deck.cards if card.subcategory == "stadium")),
+        ("",        "Tool",      sum(card.quantity for card in deck.cards if card.subcategory == "tool")),
+        ("Energy",  "Basic",     sum(card.quantity for card in deck.cards if card.subcategory == "basic_energy")),
+        ("",        "Special",   sum(card.quantity for card in deck.cards if card.subcategory == "special_energy")),
+    ]
+
+    breakdown_df = pd.DataFrame(breakdown_rows, columns=["Category", "Subcategory", "#"])
 
     opening_df = pd.DataFrame(
         {
@@ -233,7 +240,7 @@ def build_report(
 
     comparison_df = None
     if mc_simulations > 0:
-        sim = mc.simulate(deck, n=mc_simulations, seed=mc_seed)
+        sim = mc.simulate(deck, n=mc_simulations, seed=mc_seed, combo=mc_combo or [])
         comparison_rows = [
             {
                 "Statistic": "Mulligan rate",
@@ -270,6 +277,17 @@ def build_report(
                     "Theoretical": f"{theoretical:.4f}",
                     "Simulated": f"{simulated:.4f}",
                     "Diff": f"{abs(theoretical - simulated):.4f}",
+                }
+            )
+
+        if sim["combo_rate"] is not None:
+            combo_label = " + ".join(mc_combo)
+            comparison_rows.append(
+                {
+                    "Statistic": f"Combo: {combo_label}",
+                    "Theoretical": "—",
+                    "Simulated": f"{sim['combo_rate']:.4f}",
+                    "Diff": "—",
                 }
             )
 

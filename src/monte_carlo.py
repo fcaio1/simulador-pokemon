@@ -46,13 +46,14 @@ def _simulate_hand(
     return {
         "is_mulligan": is_mulligan,
         "hand_basics": hand_basics,
+        "hand_names": set(hand),
         "has_supporter": len(hand_supporters) > 0,
         "is_dead_hand": len(hand_supporters) == 0 and len(hand_energies) == 0,
         "prizes": prize_list,
     }
 
 
-def simulate(deck: "Deck", n: int = 100_000, seed: int = 42) -> dict:
+def simulate(deck: "Deck", n: int = 100_000, seed: int = 42, combo: list[str] | None = None) -> dict:
     """
     Simulate n opening hands and return empirical probabilities.
 
@@ -75,6 +76,7 @@ def simulate(deck: "Deck", n: int = 100_000, seed: int = 42) -> dict:
     ))
 
     rng = np.random.default_rng(seed)
+    combo_set = set(combo) if combo else set()
 
     mulligan_count = 0
     exactly_one_count = 0
@@ -85,6 +87,7 @@ def simulate(deck: "Deck", n: int = 100_000, seed: int = 42) -> dict:
     prize_counts: dict[str, int] = {name: 0 for name in all_card_names}
     supporter_count = 0
     dead_hand_count = 0
+    combo_hit_count = 0
     non_mulligan = 0
 
     for _ in range(n):
@@ -100,6 +103,8 @@ def simulate(deck: "Deck", n: int = 100_000, seed: int = 42) -> dict:
             supporter_count += 1
         if result["is_dead_hand"]:
             dead_hand_count += 1
+        if combo_set and not result["is_mulligan"] and combo_set.issubset(result["hand_names"]):
+            combo_hit_count += 1
 
         if result["is_mulligan"]:
             mulligan_count += 1
@@ -135,4 +140,5 @@ def simulate(deck: "Deck", n: int = 100_000, seed: int = 42) -> dict:
         "prize_rates": {name: prize_counts[name] / n for name in all_card_names},
         "supporter_in_hand": supporter_count / n,
         "dead_hand_rate": dead_hand_count / n,
+        "combo_rate": combo_hit_count / denom if combo_set else None,
     }

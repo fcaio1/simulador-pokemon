@@ -316,7 +316,12 @@ def _lookup_card(
             img = _build_limitless_url(set_code, set_number)
             data["image"] = img
             _save_cache(cache, cache_path)
-        return _map_subcategory(data), _resolve_image_url(img)
+        return (
+            _map_subcategory(data),
+            _resolve_image_url(img),
+            str(data.get("stage") or ""),
+            str(data.get("evolveFrom") or ""),
+        )
 
     api_data: dict | None = None
 
@@ -334,7 +339,7 @@ def _lookup_card(
     if api_data is None:
         logger.warning(f"Card not found: {name} ({cache_key})")
         img = _build_limitless_url(set_code, set_number)
-        return "unknown", img
+        return "unknown", img, "", ""
 
     learned_set_id = _extract_set_id(api_data)
     if normalized_set_code not in SET_CODE_MAP and learned_set_id:
@@ -351,7 +356,12 @@ def _lookup_card(
         api_data["image"] = img
     cache[cache_key] = api_data
     _save_cache(cache, cache_path)
-    return _map_subcategory(api_data), _resolve_image_url(img)
+    return (
+        _map_subcategory(api_data),
+        _resolve_image_url(img),
+        str(api_data.get("stage") or ""),
+        str(api_data.get("evolveFrom") or ""),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +387,7 @@ def enrich_deck(
     result: list[Card] = []
 
     for card_dict in parsed_cards:
-        subcategory, image = _lookup_card(
+        subcategory, image, stage, evolve_from = _lookup_card(
             name=card_dict["name"],
             set_code=card_dict["set_code"],
             set_number=card_dict["set_number"],
@@ -395,6 +405,8 @@ def enrich_deck(
                 category=card_dict["category"],
                 subcategory=subcategory,
                 image=image,
+                stage=stage,
+                evolve_from=evolve_from,
             )
         )
 

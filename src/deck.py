@@ -13,6 +13,8 @@ class Card:
     category: str  # 'pokemon' | 'trainer' | 'energy'
     subcategory: str = "unknown"  # see table below
     image: str = ""
+    stage: str = ""       # 'Basic' | 'Stage1' | 'Stage2' | 'VMAX' | etc.
+    evolve_from: str = ""  # name of the Pokémon this card evolves from
 
 
 @dataclass
